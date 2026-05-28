@@ -19,7 +19,7 @@ AAPL, AMZN, C, GOOGL, JPM, MSFT, NVDA,
 
 **TWELVEDATA TICKERS** *(handled by Twelvedata GetTimeSeries — edit this list only)*
 ```
-DELL, FANG, TER, TRGP, IBKR, LRCX, AMAT, LLY
+DELL, FANG, TER, TRGP, IBKR, LRCX, AMAT, LLY, ZS
 ```
 
 > **How to update:** Add a ticker to the Twelvedata list to track it. Remove a ticker to drop it. Do nothing else — all sections below automatically inherit the combined list. The full portfolio is the union of both lists above (currently 17 tickers).
