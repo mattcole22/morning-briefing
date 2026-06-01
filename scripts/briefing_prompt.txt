@@ -1,5 +1,6 @@
 ## PORTFOLIO MORNING BRIEFING — MASTER PROMPT v3.1
-
+## OUTPUT RULE — CRITICAL
+Output the completed briefing ONLY. Do not show tool call syntax, search queries, intermediate steps, reasoning, or any text before Section 0. Begin your response directly with the Section 0 collapsible toggle. Nothing before it.
 ---
 
 ### ROLE
