@@ -52,7 +52,7 @@ def call_claude() -> str:
     # Use streaming to handle the long response reliably
     full_response = ""
     with client.messages.stream(
-        model="claude-sonnet-4-5",
+        model="claude-sonnet-4-6",
         max_tokens=8000,
         messages=[{"role": "user", "content": user_message}],
     ) as stream:
