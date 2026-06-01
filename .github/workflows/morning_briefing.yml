@@ -25,7 +25,7 @@ jobs:
           pip install anthropic zoneinfo 2>/dev/null || pip install anthropic
 
       - name: Run morning briefing
-       env:
+        env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EMAIL_FROM:        ${{ secrets.EMAIL_FROM }}
           EMAIL_TO:          ${{ secrets.EMAIL_TO }}
