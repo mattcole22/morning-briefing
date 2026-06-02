@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
 Portfolio Morning Briefing — Auto-Runner
-Calls Claude API with the full briefing prompt, then emails via SendGrid.
+Calls Claude API with web search enabled, then emails via SendGrid.
 """
 
 import os
 import sys
 import anthropic
 import urllib.request
-import urllib.error
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -16,7 +15,7 @@ from zoneinfo import ZoneInfo
 # ── Config from environment variables ──────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 SENDGRID_API_KEY  = os.environ["SENDGRID_API_KEY"]
-EMAIL_FROM        = os.environ["EMAIL_FROM"]   # must be verified in SendGrid
+EMAIL_FROM        = os.environ["EMAIL_FROM"]
 EMAIL_TO          = os.environ["EMAIL_TO"]
 
 # ── Load the briefing prompt ────────────────────────────────────────────────
@@ -26,7 +25,7 @@ PROMPT_PATH = os.path.join(SCRIPT_DIR, "briefing_prompt.txt")
 with open(PROMPT_PATH, "r", encoding="utf-8") as f:
     BRIEFING_PROMPT = f.read()
 
-# ── Call Claude ─────────────────────────────────────────────────────────────
+# ── Call Claude with web search enabled ─────────────────────────────────────
 def call_claude() -> str:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -37,34 +36,85 @@ def call_claude() -> str:
     user_message = (
         f"Today is {date_str}. Current time: {time_str}.\n\n"
         "Please generate the complete Portfolio Morning Briefing using the "
-        "instructions below. Follow every section, data source, and formatting "
-        "rule exactly as specified.\n\n"
+        "instructions below. You MUST use the web_search tool to retrieve ALL "
+        "market data — index levels, prices, yields, VIX, sector performance, "
+        "news, and analyst actions. Do NOT use memory or training data for any "
+        "price or market figure. "
+        "For individual stock prices use cnbc.com/quotes/[TICKER] or "
+        "robinhood.com/us/en/stocks/[TICKER]/ as your primary sources. "
+        "For index levels and market recap use cnbc.com. "
+        "For yields use cnbc.com/quotes/US10Y. "
+        "Follow every section, data source, and formatting rule exactly as specified.\n\n"
         + BRIEFING_PROMPT
     )
 
-    print(f"[{time_str}] Sending request to Claude API...")
+    print(f"[{time_str}] Sending request to Claude API with web search enabled...")
 
+    # Web search tool definition
+    tools = [
+        {
+            "type": "web_search_20250305",
+            "name": "web_search",
+        }
+    ]
+
+    # Use non-streaming for tool-use
+    messages = [{"role": "user", "content": user_message}]
     full_response = ""
-    with client.messages.stream(
-        model="claude-sonnet-4-6",
-        max_tokens=8000,
-        messages=[{"role": "user", "content": user_message}],
-    ) as stream:
-        for text in stream.text_stream:
-            full_response += text
-            print(text, end="", flush=True)
+    iteration = 0
+    max_iterations = 30  # safety cap
 
-    print("\n\n[Done] Response received.")
+    while iteration < max_iterations:
+        iteration += 1
+        print(f"  [API call #{iteration}]...")
+
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=8000,
+            tools=tools,
+            messages=messages,
+        )
+
+        # Collect any text blocks from this turn
+        for block in response.content:
+            if hasattr(block, "text"):
+                full_response += block.text
+
+        # If Claude is done, break
+        if response.stop_reason == "end_turn":
+            print("  [Claude finished]")
+            break
+
+        # If Claude wants to use tools, process them and continue
+        if response.stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": response.content})
+
+            tool_results = []
+            for block in response.content:
+                if block.type == "tool_use":
+                    print(f"  [Tool call: {block.name} — {str(block.input)[:80]}]")
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "Search executed by API.",
+                    })
+
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            print(f"  [Unexpected stop_reason: {response.stop_reason}]")
+            break
+
+    print(f"\n[Done] Response received after {iteration} API call(s).")
     return full_response
 
 # ── Convert Markdown → HTML ──────────────────────────────────────────────────
 def markdown_to_html(md: str) -> str:
     import re
 
-    lines     = md.split("\n")
+    lines      = md.split("\n")
     html_lines = []
-    in_table  = False
-    in_list   = False
+    in_table   = False
+    in_list    = False
 
     def inline(text):
         text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
@@ -78,15 +128,15 @@ def markdown_to_html(md: str) -> str:
     for line in lines:
         stripped = line.strip()
 
-        if re.match(r'^---+$', stripped):
-            if in_list:  html_lines.append("</ul>");   in_list  = False
+        if re.sub(r'[-]+', '', stripped) == '' and len(stripped) >= 3 and stripped != '':
+            if in_list:  html_lines.append("</ul>");    in_list  = False
             if in_table: html_lines.append("</table>"); in_table = False
             html_lines.append('<hr style="border:1px solid #ddd;margin:16px 0;">')
             continue
 
         h_match = re.match(r'^(#{1,4})\s+(.*)', stripped)
         if h_match:
-            if in_list:  html_lines.append("</ul>");   in_list  = False
+            if in_list:  html_lines.append("</ul>");    in_list  = False
             if in_table: html_lines.append("</table>"); in_table = False
             level = len(h_match.group(1))
             sizes = {1:"24px", 2:"20px", 3:"17px", 4:"15px"}
@@ -98,7 +148,7 @@ def markdown_to_html(md: str) -> str:
             continue
 
         if stripped.startswith(">"):
-            if in_list:  html_lines.append("</ul>");   in_list  = False
+            if in_list:  html_lines.append("</ul>");    in_list  = False
             if in_table: html_lines.append("</table>"); in_table = False
             text = inline(stripped.lstrip("> ").strip())
             html_lines.append(
@@ -176,6 +226,7 @@ def build_email_html(briefing_md: str, date_str: str) -> str:
 </body>
 </html>"""
 
+
 # ── Send email via SendGrid ──────────────────────────────────────────────────
 def send_email(subject: str, html_body: str, text_body: str):
     payload = json.dumps({
@@ -206,6 +257,7 @@ def send_email(subject: str, html_body: str, text_body: str):
         raise RuntimeError(f"SendGrid returned status {status}")
     print("Email sent successfully.")
 
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main():
     et_now   = datetime.now(ZoneInfo("America/New_York"))
@@ -216,6 +268,10 @@ def main():
         briefing_md = call_claude()
     except Exception as e:
         print(f"ERROR calling Claude API: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not briefing_md.strip():
+        print("ERROR: Empty response from Claude", file=sys.stderr)
         sys.exit(1)
 
     html_body = build_email_html(briefing_md, date_str)
